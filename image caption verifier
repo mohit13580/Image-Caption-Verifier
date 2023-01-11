@@ -1,0 +1,367 @@
+'''
+import os
+import tensorflow as tf
+# Download caption annotation files
+annotation_folder = '/annotations/'
+if not os.path.exists(os.path.abspath('.') + annotation_folder):
+  annotation_zip = tf.keras.utils.get_file('captions.zip',
+                                           cache_subdir=os.path.abspath('.'),
+                                           origin='http://images.cocodataset.org/annotations/annotations_trainval2014.zip',
+                                           extract=True)
+  annotation_file = os.path.dirname(annotation_zip)+'/annotations/captions_train2014.json'
+  os.remove(annotation_zip)
+
+# Download image files
+image_folder = '/train2014/'
+if not os.path.exists(os.path.abspath('.') + image_folder):
+  image_zip = tf.keras.utils.get_file('train2014.zip',
+                                      cache_subdir=os.path.abspath('.'),
+                                      origin='http://images.cocodataset.org/zips/train2014.zip',
+                                      extract=True)
+  PATH = os.path.dirname(image_zip) + image_folder
+  os.remove(image_zip)
+else:
+  PATH = os.path.abspath('.') + image_folder
+'''
+!pip install pycocotools
+import tensorflow as tf
+import numpy as np
+import pandas as pd
+from pycocotools.coco import COCO
+
+dataDir='../input/coco-2017-dataset/coco2017/'
+dataType='train2017'
+annFile='{}/annotations/instances_{}.json'.format(dataDir,dataType)
+coco=COCO(annFile)
+
+capFile='{}/annotations/captions_{}.json'.format(dataDir,dataType)
+coco_caps = COCO(capFile)
+ids = list(coco.anns.keys())
+ 
+import pandas as pd
+data_dict = {}
+for item in coco.dataset['images']:
+        data_dict[item['id']] = item['file_name'] 
+
+caps_list = list(coco_caps.anns.values())
+
+cap_dict = {}
+for item in caps_list:
+        try:
+            cap_dict[item['image_id']].append(item['caption'])
+        except:
+            cap_dict[item['image_id']] = [item['caption']]
+    
+cap_df = pd.DataFrame(cap_dict.items(), columns=['image_id', 'caption'])
+image_df = pd.DataFrame(data_dict.items(), columns=['image_id', 'file_name'])
+data_df = pd.merge(cap_df, image_df, on="image_id")
+data_df = data_df.iloc[:6000, :]
+data_df
+len(data_df.index)
+#creating dataframe from coco 
+import pandas as pd
+
+def create_df_from_coco(coco, coco_caps):
+    
+    data_dict = {}
+    for item in coco.dataset['images']:
+        data_dict[item['id']] = item['file_name'] 
+        
+        
+    caps_list = list(coco_caps.anns.values())  
+    cap_dict = {}
+    for item in caps_list:
+        try:
+            cap_dict[item['image_id']].append(item['caption'])
+        except:
+            cap_dict[item['image_id']] = [item['caption']]
+    
+    cap_df = pd.DataFrame(cap_dict.items(), columns=['image_id', 'caption'])
+    image_df = pd.DataFrame(data_dict.items(), columns=['image_id', 'file_name'])
+    data_df = pd.merge(cap_df, image_df, on="image_id")
+    data_df = data_df = data_df.iloc[:6000, :]
+    
+    print(len(cap_df), len(image_df), len(data_df))
+    train_captions = []
+    img_name_vector = []
+    caption_labels = []
+    img_path_list = []
+    
+    
+
+    for ind in data_df.index:
+        image_path =  '../input/coco-2017-dataset/coco2017/train2017/' + data_df['file_name'][ind]
+        #print(data_df['caption'][ind], data_df['file_name'][ind])
+        caption_list = data_df['caption'][ind]
+        train_captions.extend(caption_list)
+        img_name_vector.extend([image_path] * len(caption_list))
+        caption_labels.extend([1 for i in range(len(caption_list))]) 
+        
+        img_path_list.extend([image_path])
+        
+        
+    #get negative samples
+    for ind in data_df.index[4000:6000]:
+        image_path =  '../input/coco-2017-dataset/coco2017/train2017/' + data_df['file_name'][ind]
+        #print(data_df['caption'][ind], data_df['file_name'][ind])
+        random_set = np.random.randint(4000, size=5)
+        caption_list = [data_df['caption'][i][0] for i in random_set]
+       
+        train_captions.extend(caption_list)
+        img_name_vector.extend([image_path] * len(caption_list))
+        caption_labels.extend([0 for i in range(len(caption_list))]) 
+        
+    train_data_df = pd.DataFrame(list(zip(img_name_vector, train_captions, caption_labels)),
+               columns =['Image', 'Caption', 'Label'])
+    
+    
+    
+    return train_data_df, img_path_list
+    
+train_data_df, img_path_list = create_df_from_coco(coco, coco_caps)
+train_data_df
+s = set(img_path_list)
+len(s)
+from PIL import Image
+#print(train_data_df['Caption'][601749])
+#Image.open(train_data_df['Image'][601749])
+import re
+train_data_df['Caption'] = train_data_df['Caption'].apply(lambda x: re.sub(r'[^\w\s]', '', x))
+train_data_df
+#make all lower case
+train_data_df['Caption'] = train_data_df['Caption'].str.lower()
+train_data_df = train_data_df.reset_index(drop=True)
+train_data_df
+from nltk import word_tokenize
+train_data_df['Caption'] = train_data_df.apply(lambda row: word_tokenize(row['Caption']), axis=1)
+
+train_data_df
+df = train_data_df
+a = list(df['Caption'].str.len())
+print('max :', max(a))
+print('avg :', sum(a)/len(a))
+# Import data
+import matplotlib.pyplot as plt
+%matplotlib inline
+import seaborn as sns
+
+sns.displot(a , color="green", bins=20)
+plt.xlabel('Len of caption', fontsize=16)
+plt.xlim(0,40)
+#change the values later
+max_c_len = 20
+#train tokenizer
+from tensorflow.keras.preprocessing.text import Tokenizer 
+x_tokenizer = Tokenizer() 
+x_tokenizer.fit_on_texts(train_data_df['Caption'])
+voc_size = len(x_tokenizer.word_index) + 1
+voc_size
+################################testing
+
+f = open('../input/glove-embeddings/glove.6B.300d.txt', 'r')
+lines = f.readlines()
+
+from tqdm import tqdm
+import numpy as np
+words_list = []
+glove_emb = {}
+for i, line in enumerate(lines):
+    line = line.strip('\n')
+    tokens = line.split()
+    temp = list(map(float, tokens[1:]))
+    word = tokens[0].lower()
+    words_list.append(word)
+    glove_emb[word] = np.array(temp)
+    #print(len(temp))
+
+
+num_tokens = len(x_tokenizer.word_index) + 1
+embedding_dim = 300
+hits = 0
+misses = 0
+m = []
+# Prepare embedding matrix
+embedding_matrix = np.zeros((num_tokens, embedding_dim))
+for word, i in x_tokenizer.word_index.items():
+    try:
+        embedding_vector = glove_emb[word]
+    
+        # Words not found in embedding index will be all-zeros.
+        # This includes the representation for "padding" and "OOV"
+        embedding_matrix[i] = embedding_vector
+        hits += 1
+    except:
+        misses += 1
+        m.append(word)
+        #print(word)
+print("Converted %d words (%d misses)" % (hits, misses))
+
+################################testing ended
+#creating embedding
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+train_emb_c = x_tokenizer.texts_to_sequences(train_data_df['Caption']) 
+# making all instances same length
+train_emb_c = pad_sequences(train_emb_c,  maxlen=max_c_len, padding='post')
+ 
+#image classifieser
+from keras import backend as K 
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+import string
+from string import digits
+import re
+from sklearn.utils import shuffle
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.layers import LSTM, Input, Dense,Embedding, Concatenate, TimeDistributed,Attention
+from tensorflow.keras.models import Model,load_model, model_from_json
+from tensorflow.keras.utils import plot_model
+from tensorflow.keras.preprocessing.text import one_hot, Tokenizer
+from tensorflow.keras.callbacks import EarlyStopping
+import pickle as pkl
+import numpy as np
+
+from tensorflow.keras.layers import Input, LSTM, Embedding, Dense, Concatenate, TimeDistributed, Attention
+K.clear_session() 
+latent_dim = 300
+
+
+
+
+#context lstm
+ 
+context_inputs = Input(shape=(max_c_len,)) 
+contxt_emb = Embedding(voc_size, latent_dim, weights=[embedding_matrix],trainable=True)(context_inputs) 
+#LSTM 1 
+context_lstm1 = LSTM(latent_dim,return_sequences=True,return_state=True) 
+context_output1, context_state_h1, context_state_c1 = context_lstm1(contxt_emb) 
+
+
+#LSTM 2 
+context_lstm2 = LSTM(latent_dim,return_sequences=True,return_state=True) 
+context_output, context_state_h, context_state_c = context_lstm2(context_output1)
+
+'''
+#LSTM 3 
+context_lstm3 = LSTM(latent_dim,return_sequences=True,return_state=True) 
+context_output, context_state_h, context_state_c = context_lstm3(context_output2)
+'''
+
+predictions = Dense(1, activation="sigmoid", name="predictions")(context_output)
+
+model = Model(context_inputs, predictions) 
+plot_model(model, to_file='train_model.png', show_shapes=True)
+model.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+#es = EarlyStopping(monitor='val_loss', mode='min', verbose=1)
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split( train_emb_c, train_data_df['Label'], test_size=0.2, random_state=42)
+ 
+# Fit the model using the train and test datasets.
+model.fit(X_train,y_train, epochs=3)
+ 
+from tensorflow.keras.applications.inception_v3 import InceptionV3
+# InceptionV3 model trained on imagenet data
+model = InceptionV3(weights='imagenet')
+# Remove the last layer 
+model_new = Model(model.input, model.layers[-2].output)
+from tensorflow.keras.applications.inception_v3 import InceptionV3, preprocess_input 
+from tensorflow.keras.preprocessing import image
+
+def preprocess(image_path):
+    img = image.load_img(image_path, target_size=(299, 299))
+ 
+    x = image.img_to_array(img)
+
+    x = np.expand_dims(x, axis=0)
+ 
+    x = preprocess_input(x)
+    return x
+# Function to encode a given image into a vector of size (2048, )
+def encode(image):
+    image = preprocess(image) 
+    fea_vec = model_new.predict(image) 
+    fea_vec = np.reshape(fea_vec, fea_vec.shape[1]) 
+    return fea_vec
+# Call the funtion to encode all the train images
+# This will take a while on CPU - Execute this only once
+img = '../input/coco2014/train2014/train2014/COCO_train2014_000000000009.jpg'
+encoding_train = {}
+
+encoding_train[img] = encode(img)
+encoding_train[img]
+from tqdm import tqdm
+encoding_train = {}
+for img in tqdm(img_path_list):
+    encoding_train[img] = encode(img)
+    
+
+#arr = os.listdir('../input/coco2014/train2014/train2014/')
+#arr
+import pickle
+# Save the bottleneck train features to disk
+with open("encoded_images.pkl", "wb") as encoded_pickle:
+    pickle.dump(encoding_train, encoded_pickle)
+train_features = pickle.load(open("encoded_images.pkl", "rb"))
+ 
+#image classifieser
+from keras import backend as K 
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+import string
+from string import digits
+import re
+from sklearn.utils import shuffle
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.layers import LSTM, Input, Dense,Embedding, Concatenate, TimeDistributed,Attention, Dropout
+from tensorflow.keras.models import Model,load_model, model_from_json
+from tensorflow.keras.utils import plot_model
+from tensorflow.keras.preprocessing.text import one_hot, Tokenizer
+from tensorflow.keras.callbacks import EarlyStopping
+from keras.layers.merge import add
+import pickle as pkl
+import numpy as np
+
+from tensorflow.keras.layers import Input, LSTM, Embedding, Dense, Concatenate, TimeDistributed, Attention
+K.clear_session() 
+latent_dim = 300
+
+
+
+
+#context lstm
+ 
+context_inputs = Input(shape=(max_c_len,)) 
+contxt_emb = Embedding(voc_size, latent_dim, weights=[embedding_matrix],trainable=True)(context_inputs) 
+#LSTM 1 
+context_lstm1 = LSTM(latent_dim,return_sequences=True,return_state=True) 
+context_output1, context_state_h1, context_state_c1 = context_lstm1(contxt_emb) 
+
+
+#LSTM 2 
+context_lstm2 = LSTM(latent_dim,return_sequences=True,return_state=True) 
+context_output, context_state_h, context_state_c = context_lstm2(context_output1)
+
+'''
+#LSTM 3 
+context_lstm3 = LSTM(latent_dim,return_sequences=True,return_state=True) 
+context_output, context_state_h, context_state_c = context_lstm3(context_output2)
+'''
+
+# image embedding
+image_inputs = Input(shape=(2048,))
+image_dropout = Dropout(0.5)(image_inputs)
+image_outputs = Dense(latent_dim, activation='relu')(image_dropout)
+
+
+
+decoder_concat_input = add([context_output, image_outputs])
+
+predictions = Dense(1, activation="sigmoid", name="predictions")(decoder_concat_input)
+
+model = Model([context_inputs, image_inputs], predictions) 
+plot_model(model, to_file='train_model.png', show_shapes=True)
+model.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+#es = EarlyStopping(monitor='val_loss', mode='min', verbose=1)
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split( train_emb_c, train_data_df['Label'], test_size=0.2, random_state=42)
